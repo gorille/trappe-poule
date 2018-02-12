@@ -3,19 +3,20 @@
 #include <Wire.h>
 
 /*************************************************************
-Motor Shield Stepper Demo
-by Randy Sarafan
-
-For more information see:
-https://www.instructables.com/id/Arduino-Motor-Shield-Tutorial/
-
+trappe a poule
+https://github.com/gorille/trappe-poule
 *************************************************************/
 
 // functionnal variable
-int delaylength   = 5;   // delay between motor moves
+int delaylength   = 5;     // delay between motor moves
 int rotations     = 2100;  // number of iteration to open the door
-int safety_button = 7;   // I/O pin to stop motor in open position
-int toggle_button = 6;   // I/O pin to toggle door
+int safety_button = 7;     // I/O pin to stop motor in open position
+int toggle_button = 6;     // I/O pin to toggle door
+
+int open_hour     = 7;     // time ( hour ) to which open the door
+int open_minute   = 0;     // time ( minute ) to which open the door
+int close_hour    = 21;    // time ( hour ) to which close the door
+int close_minute  = 0;     // time ( minute ) to which close the door
 
 // PIN 4 and 5 are reserved for RTC
 
@@ -26,15 +27,15 @@ int previous      = 0;   //debounce signal from pin
 #define OPEN_DOOR    2
 #define CLOSE_DOOR   3
 
-State initializing(NULL, NULL, NULL ); // init here
-State started(&on_init, NULL, NULL); // triggers first configuration, auto transition to open
-State state_open(&on_open, NULL, NULL); // door is opened
-State state_closed(&on_close, NULL, NULL); // door closed
-Fsm fsm(&initializing);
+State started(&on_init, NULL, NULL);  // init here
+State state_open(&on_open, &checkInterrupts, NULL); // door is opened
+State state_closed(&on_close, &checkInterrupts, NULL); // door closed
+Fsm fsm(&started);
 
+
+/** setup the state machine **/
 void setup() {
   Serial.begin(9600);
-  fsm.add_timed_transition(&initializing, &started, 500, NULL );
   fsm.add_transition(&started, &state_open, TOGGLE_DOOR, NULL );
   fsm.add_transition(&state_open, &state_closed, TOGGLE_DOOR, NULL );
   fsm.add_transition(&state_closed, &state_open, TOGGLE_DOOR, NULL );
@@ -61,8 +62,8 @@ void setOpenAlarm() {
   Serial.println("setting alarm 1");
   RTC.setAlarm1Callback(openDoor);
   RTC.yyyy = RTC.mm = RTC.dd = 0;
-  RTC.h = 0;
-  RTC.m = 27;
+  RTC.h = open_hour;
+  RTC.m = open_minute;
   RTC.s = RTC.dow = 0;
   RTC.writeAlarm1(DS3231_ALM_HMS);
 }
@@ -74,35 +75,43 @@ void setCloseAlarm() {
   Serial.println("setting alarm 2");
   RTC.setAlarm2Callback(closeDoor);
   RTC.yyyy = RTC.mm = RTC.dd = 0;
-  RTC.h = 0;
-  RTC.m = 26;
+  RTC.h = close_hour;
+  RTC.m = close_minute;
   RTC.s = RTC.dow = 0;
   RTC.writeAlarm2(DS3231_ALM_HM);
 }
 
 void loop() {
   fsm.run_machine();
-  RTC.checkAlarm1();
-  RTC.checkAlarm2();
-  checkExternalButton();
+  printTime();
+}
+
+
+/**
+ * print current time
+ * */
+void printTime() {
   RTC.readTime();
   Serial.print(RTC.h);
   Serial.print(":");
   Serial.print(RTC.m);
   Serial.print(":");
   Serial.println(RTC.s);
-  delay(1000);
 }
 
 
 /** check external button **/
-void checkExternalButton() {
+void checkInterrupts() {
   if(digitalRead(toggle_button)==0 && previous ==0 ) {
     toggleDoor();
     previous = 1;
   } else {
     previous = 0;
   }
+  
+  RTC.checkAlarm1();
+  RTC.checkAlarm2();
+  
 }
 
 // send signal to trigger door movement
