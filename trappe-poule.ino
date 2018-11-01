@@ -1,10 +1,15 @@
 #include <Fsm.h>
 #include <MD_DS3231.h>
 #include <Wire.h>
+#include <Dusk2Dawn.h>
 
 /*************************************************************
-trappe a poule
-https://github.com/gorille/trappe-poule
+Motor Shield Stepper Demo
+by Randy Sarafan
+
+For more information see:
+https://www.instructables.com/id/Arduino-Motor-Shield-Tutorial/
+
 *************************************************************/
 
 // functionnal variable
@@ -12,11 +17,6 @@ int delaylength   = 5;     // delay between motor moves
 int rotations     = 2100;  // number of iteration to open the door
 int safety_button = 7;     // I/O pin to stop motor in open position
 int toggle_button = 6;     // I/O pin to toggle door
-
-int open_hour     = 7;     // time ( hour ) to which open the door
-int open_minute   = 0;     // time ( minute ) to which open the door
-int close_hour    = 21;    // time ( hour ) to which close the door
-int close_minute  = 0;     // time ( minute ) to which close the door
 
 // PIN 4 and 5 are reserved for RTC
 
@@ -32,6 +32,22 @@ State state_open(&on_open, &checkInterrupts, NULL); // door is opened
 State state_closed(&on_close, &checkInterrupts, NULL); // door closed
 Fsm fsm(&started);
 
+// Multiple instances can be created. Arguments are longitude, latitude, and
+// time zone offset in hours from UTC.
+//
+// The first two must be in decimal degrees (DD), e.g. 10.001, versus the more
+// common degrees, minutes, and seconds format (DMS), e.g. 10° 00′ 3.6″. The
+// time zone offset can be expressed in decimal fractions, e.g. "5.75" for
+// Nepal Standard Time, in the few cases where the zones are offset by 30 or
+// 45 minutes.
+//
+// HINT: An easy way to find the longitude and latitude for any arbitrary
+// location is to find the spot in Google Maps, right click the place on the
+// map, and select "What's here?". At the bottom, you’ll see a card with the
+// coordinates.
+
+// edit this to reflect your position (Beware, Time HAS TO BE SET TO UTC otherwise use the shift ( third arg to compensate )
+Dusk2Dawn myCoordinates(48.585995, 7.506461, 0);
 
 /** setup the state machine **/
 void setup() {
@@ -59,7 +75,14 @@ void setupClock(){
  * prepare clock alarm to open the door
  **/
 void setOpenAlarm() {
-  Serial.println("setting alarm 1");
+  RTC.readTime();
+  int sunrise = myCoordinates.sunrise(RTC.yyyy, RTC.mm, RTC.dd, false);
+  int open_hour = (int) sunrise / 60;
+  int open_minute = sunrise % 60;
+  Serial.print("setting alarm 1 at ");
+  Serial.print(open_hour);
+  Serial.print(":");
+  Serial.println(open_minute);
   RTC.setAlarm1Callback(openDoor);
   RTC.yyyy = RTC.mm = RTC.dd = 0;
   RTC.h = open_hour;
@@ -72,7 +95,15 @@ void setOpenAlarm() {
  * prepare clock alarm to close the door
  **/
 void setCloseAlarm() {
-  Serial.println("setting alarm 2");
+  RTC.readTime();
+  int sunset = myCoordinates.sunset(RTC.yyyy, RTC.mm, RTC.dd, false);
+  int close_hour = (int) sunset / 60;
+  int close_minute = sunset % 60;
+  Serial.print("setting alarm 2 at ");
+  Serial.print(close_hour);
+  Serial.print(":");
+  Serial.println(close_minute);
+
   RTC.setAlarm2Callback(closeDoor);
   RTC.yyyy = RTC.mm = RTC.dd = 0;
   RTC.h = close_hour;
@@ -83,21 +114,8 @@ void setCloseAlarm() {
 
 void loop() {
   fsm.run_machine();
-  printTime();
 }
 
-
-/**
- * print current time
- * */
-void printTime() {
-  RTC.readTime();
-  Serial.print(RTC.h);
-  Serial.print(":");
-  Serial.print(RTC.m);
-  Serial.print(":");
-  Serial.println(RTC.s);
-}
 
 
 /** check external button **/
@@ -164,10 +182,8 @@ void on_open(){
   Serial.println("Warp gate opening...");
   while(digitalRead(safety_button) == 0) rotateMotor(HIGH, LOW);
   Serial.println("Warp gate OPENED !!!");
-  digitalWrite(9, LOW);  //ENABLE CH A
-  digitalWrite(8, LOW); //DISABLE CH B
-  analogWrite(11, 0);  
-  analogWrite(3, 0);  
+  powerOff();
+  setupClock();
 }
 
 /**
@@ -176,13 +192,19 @@ void on_open(){
 void on_close(){
   Serial.println("Dark matter emission detected, shutting down warp gate...");
   for(int i = 0; i< rotations; i++) rotateMotor(LOW, HIGH);
+  powerOff();
+  setupClock();
+}
+
+/**
+ * shuts down power to motor shield
+ */
+void powerOff() {
   digitalWrite(9, LOW);  //ENABLE CH A
   digitalWrite(8, LOW); //DISABLE CH B
   analogWrite(11, 0);  
   analogWrite(3, 0);  
 }
-
-
 
 /**
  * performs motor rotation
@@ -224,3 +246,4 @@ void rotateMotor(int first_direction, int second_direction){
   delay(delaylength);
 
 }
+
